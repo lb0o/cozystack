@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cozystack-controller
+  namespace: cozy-monitoring
+  labels:
+    app.kubernetes.io/name: cozystack-controller
+    app.kubernetes.io/instance: cozystack-controller
+spec:
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s
+  namespaceSelector:
+    matchNames:
+    - cozy-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cozystack-controller
+      app.kubernetes.io/instance: cozystack-controller 

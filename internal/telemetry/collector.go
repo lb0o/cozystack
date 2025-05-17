@@ -26,6 +26,8 @@ type Collector struct {
 	config          *Config
 	ticker          *time.Ticker
 	stopCh          chan struct{}
+	metricsServer   *http.Server
+	metrics         string
 }
 
 // NewCollector creates a new telemetry collector
@@ -50,6 +52,24 @@ func (c *Collector) Start(ctx context.Context) error {
 	c.ticker = time.NewTicker(c.config.Interval)
 	c.stopCh = make(chan struct{})
 
+	// Start metrics server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte(c.metrics))
+	})
+
+	c.metricsServer = &http.Server{
+		Addr:    ":8081",
+		Handler: mux,
+	}
+
+	go func() {
+		if err := c.metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.FromContext(ctx).Error(err, "failed to start metrics server")
+		}
+	}()
+
 	// Initial collection
 	c.collect(ctx)
 
@@ -58,6 +78,9 @@ func (c *Collector) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			c.ticker.Stop()
 			close(c.stopCh)
+			if c.metricsServer != nil {
+				c.metricsServer.Shutdown(context.Background())
+			}
 			return nil
 		case <-c.ticker.C:
 			c.collect(ctx)
@@ -262,8 +285,11 @@ func (c *Collector) collect(ctx context.Context) {
 		))
 	}
 
-	// Send metrics
-	if err := c.sendMetrics(clusterID, metrics.String()); err != nil {
+	// Store metrics for local endpoint
+	c.metrics = metrics.String()
+
+	// Send metrics to remote endpoint
+	if err := c.sendMetrics(clusterID, c.metrics); err != nil {
 		logger.Info(fmt.Sprintf("Failed to send metrics: %v", err))
 	}
 }
